@@ -248,19 +248,19 @@ async def search(interaction: discord.Interaction, query: str):
                 user_selected_items[user_id].append(selected_item)
                 await select_interaction.response.send_message(
                     f"✅ Added **{selected_item.title()}** to your total list. Use `/total` to calculate quantities!",
-                    ephemeral=True
+                    ephemeral=False
                 )
             else:
                 await select_interaction.response.send_message(
                     f"⚠️ {selected_item.title()} is already in your total list.",
-                    ephemeral=True
+                    ephemeral=False
                 )
 
         @discord.ui.button(label="View My Total List", style=discord.ButtonStyle.success)
         async def view_total(self, btn_interaction: discord.Interaction, _):
             user_id = str(btn_interaction.user.id)
             if user_id not in user_selected_items or not user_selected_items[user_id]:
-                await btn_interaction.response.send_message("🛒 Your total list is empty!", ephemeral=True)
+                await btn_interaction.response.send_message("🛒 Your total list is empty!", ephemeral=False)
                 return
             selected = user_selected_items[user_id]
             embed = discord.Embed(
@@ -269,7 +269,7 @@ async def search(interaction: discord.Interaction, query: str):
                 color=discord.Color.green()
             )
             embed.set_footer(text="Use /total to calculate final buy/sell values.")
-            await btn_interaction.response.send_message(embed=embed, ephemeral=True)
+            await btn_interaction.response.send_message(embed=embed, ephemeral=False)
 
     await interaction.response.send_message(embed=embed, view=SearchView())
 
