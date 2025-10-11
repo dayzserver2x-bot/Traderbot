@@ -162,7 +162,7 @@ async def additem(interaction: discord.Interaction, name: str, buy_price: float,
         return
     items[name] = {"buy": buy_price, "sell": sell_price}
     save_items(items)
-    await interaction.response.send_message(f"✅ Added {name.title()} (Buy: ${buy_price}, Sell: ${sell_price})")
+    await interaction.response.send_message(f"✅ Added {name.title()} (Buy: ${buy_price}, Sell: ${sell_price})", ephemeral=True)
 
 # -------------------------------
 # 🗑️ REMOVE ITEM
@@ -179,7 +179,7 @@ async def removeitem(interaction: discord.Interaction, name: str):
         return
     del items[name]
     save_items(items)
-    await interaction.response.send_message(f"🗑️ Removed {name.title()}")
+    await interaction.response.send_message(f"🗑️ Removed {name.title()}", ephemeral=True)
 
 # -------------------------------
 # 💲 PRICE COMMAND
@@ -233,7 +233,7 @@ async def search(interaction: discord.Interaction, query: str):
     await interaction.response.send_message(embed=embed)
 
 # -------------------------------
-# 💰 TOTAL COMMAND (Fixed Modal)
+# 💰 TOTAL COMMAND (Improved Modal Input)
 # -------------------------------
 @bot.tree.command(name="total", description="Calculate total buy/sell value of multiple items")
 async def total(interaction: discord.Interaction):
@@ -258,7 +258,7 @@ async def total(interaction: discord.Interaction):
             current_page_items = all_items_list[start:end]
             embed = discord.Embed(
                 title=f"🛍️ Available Shop Items (Page {self.page + 1}/{total_pages})",
-                description="Select up to 25 items below to include in your total.",
+                description="Select items below to include in your total.",
                 color=discord.Color.gold()
             )
             for name, data in current_page_items:
@@ -299,8 +299,8 @@ async def total(interaction: discord.Interaction):
             self.selected_items.extend(newly_selected)
             self.selected_items = list(dict.fromkeys(self.selected_items))
             await interaction.response.send_message(
-                f"✅ Added: {', '.join(newly_selected)}\n🧾 Total selected so far: {len(self.selected_items)} items",
-                ephemeral=False
+                f"✅ Added: {', '.join(newly_selected)}\n🧾 Total selected: {len(self.selected_items)} items",
+                ephemeral=True
             )
 
         @discord.ui.button(label="⬅️ Prev Page", style=discord.ButtonStyle.secondary)
@@ -314,8 +314,7 @@ async def total(interaction: discord.Interaction):
 
         @discord.ui.button(label="➡️ Next Page", style=discord.ButtonStyle.secondary)
         async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
-            max_page = total_pages - 1
-            if self.page < max_page:
+            if self.page < total_pages - 1:
                 self.page += 1
                 self.update_dropdown_and_embed()
                 await interaction.response.edit_message(embed=self.current_embed, view=self)
@@ -327,7 +326,7 @@ async def total(interaction: discord.Interaction):
             self.update_dropdown_and_embed()
             await interaction.response.edit_message(embed=self.current_embed, view=self)
 
-        # ✅ FIXED CALCULATE TOTAL BUTTON
+        # ✅ Improved multi-modal system
         @discord.ui.button(label="✅ Calculate Total", style=discord.ButtonStyle.success)
         async def calculate_total(self, interaction: discord.Interaction, button: discord.ui.Button):
             if not self.selected_items:
@@ -337,46 +336,58 @@ async def total(interaction: discord.Interaction):
             selected_items = list(dict.fromkeys(self.selected_items))
             items_data = load_items()
 
-            class QuantityModal(discord.ui.Modal, title="Enter Quantities"):
-                def __init__(self):
-                    super().__init__()
-                    for item in selected_items[:5]:
-                        self.add_item(discord.ui.TextInput(
-                            label=f"{item.title()} Quantity",
-                            placeholder="Enter a number (e.g., 3)",
-                            required=True
-                        ))
+            total_buy = 0.0
+            total_sell = 0.0
+            details = []
 
-                async def on_submit(self, modal_interaction: discord.Interaction):
-                    total_buy = 0.0
-                    total_sell = 0.0
-                    details = []
+            async def process_batch(start_index=0):
+                """Handle 5 items per modal batch"""
+                end_index = min(start_index + 5, len(selected_items))
+                current_batch = selected_items[start_index:end_index]
 
-                    for i, item in enumerate(selected_items[:5]):
-                        try:
-                            qty = float(self.children[i].value)
-                        except ValueError:
-                            qty = 0
-                        data = items_data.get(item.lower())
-                        if not data:
-                            continue
-                        buy_val = data["buy"] * qty
-                        sell_val = data["sell"] * qty
-                        total_buy += buy_val
-                        total_sell += sell_val
-                        details.append(f"• {item.title()} × {qty} → 🛒 Buy: `${buy_val:,.2f}` | 💵 Sell: `${sell_val:,.2f}`")
+                class QuantityModal(discord.ui.Modal, title=f"Enter Quantities ({start_index + 1}-{end_index})"):
+                    def __init__(self):
+                        super().__init__()
+                        for item in current_batch:
+                            self.add_item(discord.ui.TextInput(
+                                label=f"{item.title()} Quantity",
+                                placeholder="Enter a number (e.g., 3)",
+                                required=True
+                            ))
 
-                    embed = discord.Embed(title="📦 Total Calculation", color=discord.Color.blurple())
-                    embed.add_field(name="Details", value="\n".join(details), inline=False)
-                    embed.add_field(name="💰 Total Buy", value=f"${total_buy:,.2f}")
-                    embed.add_field(name="💵 Total Sell", value=f"${total_sell:,.2f}")
-                    await modal_interaction.response.send_message(embed=embed)
+                    async def on_submit(self, modal_interaction: discord.Interaction):
+                        nonlocal total_buy, total_sell, details
+                        for i, item in enumerate(current_batch):
+                            try:
+                                qty = float(self.children[i].value)
+                            except ValueError:
+                                qty = 0
+                            data = items_data.get(item.lower())
+                            if not data:
+                                continue
+                            buy_val = data["buy"] * qty
+                            sell_val = data["sell"] * qty
+                            total_buy += buy_val
+                            total_sell += sell_val
+                            details.append(f"• {item.title()} × {qty} → 🛒 Buy: `${buy_val:,.2f}` | 💵 Sell: `${sell_val:,.2f}`")
 
-            # ✅ Open modal correctly (no followup call)
-            await interaction.response.send_modal(QuantityModal())
+                        # Continue to next modal batch if needed
+                        if end_index < len(selected_items):
+                            await process_batch(end_index)
+                        else:
+                            # All done → show final result
+                            summary = discord.Embed(title="📦 Total Calculation", color=discord.Color.blurple())
+                            summary.add_field(name="Details", value="\n".join(details)[:1024], inline=False)
+                            summary.add_field(name="💰 Total Buy", value=f"${total_buy:,.2f}")
+                            summary.add_field(name="💵 Total Sell", value=f"${total_sell:,.2f}")
+                            await modal_interaction.response.send_message(embed=summary)
+
+                await interaction.response.send_modal(QuantityModal())
+
+            await process_batch()
 
     view = TotalView()
-    await interaction.response.send_message(embed=view.current_embed, view=view, ephemeral=False)
+    await interaction.response.send_message(embed=view.current_embed, view=view)
 
 # -------------------------------
 # 🔄 MANUAL SYNC COMMAND
