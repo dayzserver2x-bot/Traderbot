@@ -43,7 +43,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # 🔐 ROLE CHECK
 # -------------------------------
 def has_bot_role(member: discord.Member) -> bool:
-    if BOT_ROLE_ID and any(role.id == int(BOT_ROLE_ID) for role in member.roles):
+    if BOT_ROLE_ID and BOT_ROLE_ID.isdigit() and any(role.id == int(BOT_ROLE_ID) for role in member.roles):
         return True
     if BOT_ROLE and any(role.name.lower() == BOT_ROLE.lower() for role in member.roles):
         return True
@@ -96,29 +96,33 @@ async def shop(interaction: discord.Interaction):
     if not items:
         await interaction.response.send_message("⚠️ The shop is currently empty.")
         return
+
     items = dict(sorted(items.items()))
     per_page = 10
     item_list = list(items.items())
     pages = []
+
     for i in range(0, len(item_list), per_page):
         chunk = item_list[i:i + per_page]
         embed = discord.Embed(
-            title="🛍️ **SLOW TRADERS BOT**",
-            description="Browse all available items.\nUse /price <item> for more info.",
+            title="🛍️ **SLOW TRADERS SHOP**",
+            description="Browse all available items below.\nUse </price:0> or `/price <item>` for details.",
             color=discord.Color.gold()
         )
         embed.set_footer(text=f"Page {len(pages)+1}/{(len(item_list)-1)//per_page + 1}")
+
         for name, data in chunk:
             embed.add_field(
-                name=f"{name.title()}",
-                value=f"💰 Buy: ${data['buy']}\n💵 Sell: ${data['sell']}",
+                name=f"✨ {name.title()}",
+                value=f"💰 **Buy:** `${data['buy']:.2f}`\n💵 **Sell:** `${data['sell']:.2f}`",
                 inline=True
             )
+
         pages.append(embed)
 
     class ShopView(discord.ui.View):
         def __init__(self):
-            super().__init__(timeout=60)
+            super().__init__(timeout=90)
             self.page = 0
 
         @discord.ui.button(label="⬅️ Prev", style=discord.ButtonStyle.secondary)
@@ -136,6 +140,10 @@ async def shop(interaction: discord.Interaction):
                 await interaction.response.edit_message(embed=pages[self.page], view=self)
             else:
                 await interaction.response.defer()
+
+        async def on_timeout(self):
+            for child in self.children:
+                child.disabled = True
 
     await interaction.response.send_message(embed=pages[0], view=ShopView())
 
@@ -157,9 +165,18 @@ async def additem(interaction: discord.Interaction, name: str, buy_price: float,
     if name in items:
         await interaction.response.send_message(f"⚠️ {name.title()} already exists.")
         return
+
     items[name] = {"buy": buy_price, "sell": sell_price}
     save_items(items)
-    await interaction.response.send_message(f"✅ Added {name.title()} (Buy: ${buy_price}, Sell: ${sell_price})")
+
+    embed = discord.Embed(
+        title="✅ Item Added",
+        description=f"**{name.title()}** has been added to the shop.",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="💰 Buy Price", value=f"${buy_price:.2f}")
+    embed.add_field(name="💵 Sell Price", value=f"${sell_price:.2f}")
+    await interaction.response.send_message(embed=embed)
 
 # -------------------------------
 # 🗑️ REMOVE ITEM
@@ -169,14 +186,22 @@ async def removeitem(interaction: discord.Interaction, name: str):
     if not has_bot_role(interaction.user):
         await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
         return
+
     items = load_items()
     name = name.lower()
     if name not in items:
         await interaction.response.send_message(f"❌ {name.title()} not found.")
         return
+
     del items[name]
     save_items(items)
-    await interaction.response.send_message(f"🗑️ Removed {name.title()}")
+
+    embed = discord.Embed(
+        title="🗑️ Item Removed",
+        description=f"**{name.title()}** has been removed from the shop.",
+        color=discord.Color.red()
+    )
+    await interaction.response.send_message(embed=embed)
 
 # -------------------------------
 # 💲 PRICE COMMAND
@@ -187,9 +212,14 @@ async def price(interaction: discord.Interaction, item_name: str):
     item_name = item_name.lower()
     if item_name in items:
         data = items[item_name]
-        embed = discord.Embed(title=item_name.title(), color=discord.Color.green())
-        embed.add_field(name="Buy", value=f"${data['buy']}")
-        embed.add_field(name="Sell", value=f"${data['sell']}")
+        embed = discord.Embed(
+            title=f"💎 {item_name.title()}",
+            description="Here are the current market values:",
+            color=discord.Color.blurple()
+        )
+        embed.add_field(name="💰 Buy Price", value=f"${data['buy']:.2f}")
+        embed.add_field(name="💵 Sell Price", value=f"${data['sell']:.2f}")
+        embed.set_footer(text="Use /shop to see all items")
         await interaction.response.send_message(embed=embed)
     else:
         await interaction.response.send_message(f"❌ {item_name.title()} not found.")
