@@ -137,6 +137,10 @@ async def shop(interaction: discord.Interaction):
 			else:
 				await interaction.response.defer()
 
+		async def on_timeout(self):
+			for child in self.children:
+				child.disabled = True
+
 	await interaction.response.send_message(embed=pages[0], view=ShopView())
 
 # -------------------------------
@@ -249,6 +253,17 @@ async def total(interaction: discord.Interaction, items: str):
 		embed.add_field(name="⚠️ Not Found / Invalid", value=", ".join(missing_items), inline=False)
 
 	await interaction.response.send_message(embed=embed)
+
+# -------------------------------
+# 🔄 MANUAL SYNC COMMAND
+# -------------------------------
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def sync(ctx):
+	"""Force refresh all slash commands"""
+	await ctx.send("🔄 Syncing slash commands...")
+	synced = await bot.tree.sync()
+	await ctx.send(f"✅ Synced {len(synced)} global slash commands.")
 
 # -------------------------------
 # 🚀 RUN BOT WITH KEEP ALIVE
