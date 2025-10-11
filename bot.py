@@ -6,6 +6,11 @@ from discord.ext import commands
 from dotenv import load_dotenv
 from flask import Flask
 from threading import Thread
+import logging
+import asyncio
+
+# Enable logging to see full errors
+logging.basicConfig(level=logging.INFO)
 
 # -------------------------------
 # 🌐 KEEP ALIVE SERVER
@@ -88,7 +93,7 @@ async def on_ready():
     print(f"🔁 Synced {len(synced)} slash commands")
 
 # -------------------------------
-# 💬 SHOP COMMANDS
+# 💬 SHOP COMMAND
 # -------------------------------
 @bot.tree.command(name="shop", description="View all available shop items")
 async def shop(interaction: discord.Interaction):
@@ -111,14 +116,14 @@ async def shop(interaction: discord.Interaction):
         for name, data in chunk:
             embed.add_field(
                 name=f"{name.title()}",
-                value=f"💰 Buy: ${data['buy']}\n💵 Sell: ${data['sell']}",
+                value=f"💰 Buy: ${data['buy']:,.2f}\n💵 Sell: ${data['sell']:,.2f}",
                 inline=True
             )
         pages.append(embed)
 
     class ShopView(discord.ui.View):
         def __init__(self):
-            super().__init__(timeout=60)
+            super().__init__(timeout=None)
             self.page = 0
 
         @discord.ui.button(label="⬅️ Prev", style=discord.ButtonStyle.secondary)
@@ -136,10 +141,6 @@ async def shop(interaction: discord.Interaction):
                 await interaction.response.edit_message(embed=pages[self.page], view=self)
             else:
                 await interaction.response.defer()
-
-        async def on_timeout(self):
-            for child in self.children:
-                child.disabled = True
 
     await interaction.response.send_message(embed=pages[0], view=ShopView())
 
@@ -190,146 +191,192 @@ async def price(interaction: discord.Interaction, item_name: str):
     if item_name in items:
         data = items[item_name]
         embed = discord.Embed(title=item_name.title(), color=discord.Color.green())
-        embed.add_field(name="Buy", value=f"${data['buy']}")
-        embed.add_field(name="Sell", value=f"${data['sell']}")
+        embed.add_field(name="Buy", value=f"${data['buy']:,.2f}")
+        embed.add_field(name="Sell", value=f"${data['sell']:,.2f}")
         await interaction.response.send_message(embed=embed)
     else:
         await interaction.response.send_message(f"❌ {item_name.title()} not found.")
 
 # -------------------------------
-# 💰 TOTAL COMMAND (Multi-Dropdown + Modal)
+# 🔎 SEARCH COMMAND
+# -------------------------------
+@bot.tree.command(name="search", description="Search for items in the shop by name")
+async def search(interaction: discord.Interaction, query: str):
+    items = load_items()
+    query = query.lower()
+    results = {name: data for name, data in items.items() if query in name}
+    if not results:
+        await interaction.response.send_message(f"❌ No items found matching '{query}'.", ephemeral=False)
+        return
+    results = dict(sorted(results.items()))
+    embed = discord.Embed(
+        title=f"🔎 Search Results for '{query}'",
+        description=f"Found {len(results)} item(s):",
+        color=discord.Color.blue()
+    )
+    for name, data in results.items():
+        embed.add_field(
+            name=name.title(),
+            value=f"💰 Buy: ${data['buy']:,.2f} | 💵 Sell: ${data['sell']:,.2f}",
+            inline=True
+        )
+    if len(embed.fields) > 25:
+        embed.clear_fields()
+        limited = list(results.items())[:25]
+        for name, data in limited:
+            embed.add_field(
+                name=name.title(),
+                value=f"💰 Buy: ${data['buy']:,.2f} | 💵 Sell: ${data['sell']:,.2f}",
+                inline=True
+            )
+        embed.set_footer(text="⚠️ Showing first 25 results only.")
+    await interaction.response.send_message(embed=embed)
+
+# -------------------------------
+# 💰 TOTAL COMMAND (Fixed Modal)
 # -------------------------------
 @bot.tree.command(name="total", description="Calculate total buy/sell value of multiple items")
 async def total(interaction: discord.Interaction):
     items = load_items()
     if not items:
-        await interaction.response.send_message("⚠️ The shop is empty.", ephemeral=True)
+        await interaction.response.send_message("⚠️ The shop is empty.", ephemeral=False)
         return
 
-    all_options = [
-        discord.SelectOption(label=name.title(), description=f"Buy ${data['buy']} | Sell ${data['sell']}")
-        for name, data in items.items()
-    ]
-    all_options = all_options[:100]  # safety cap
+    all_items_list = list(sorted(items.items()))
+    total_pages = (len(all_items_list) - 1) // 25 + 1
 
     class TotalView(discord.ui.View):
         def __init__(self):
-            super().__init__(timeout=180)
+            super().__init__(timeout=None)
             self.selected_items = []
             self.page = 0
-            self.update_dropdown()
+            self.update_dropdown_and_embed()
 
-        def update_dropdown(self):
+        def create_page_embed(self):
             start = self.page * 25
             end = start + 25
-            current_page_options = all_options[start:end]
-            self.select_menu = discord.ui.Select(
-                placeholder="Select up to 5 items...",
-                min_values=1,
-                max_values=min(5, len(current_page_options)),
-                options=current_page_options
+            current_page_items = all_items_list[start:end]
+            embed = discord.Embed(
+                title=f"🛍️ Available Shop Items (Page {self.page + 1}/{total_pages})",
+                description="Select up to 25 items below to include in your total.",
+                color=discord.Color.gold()
             )
-            self.select_menu.callback = self.handle_select
+            for name, data in current_page_items:
+                embed.add_field(
+                    name=name.title(),
+                    value=f"💰 Buy: ${data['buy']:,.2f} | 💵 Sell: ${data['sell']:,.2f}",
+                    inline=True
+                )
+            embed.set_footer(text="Use ➕ Add More to continue selecting items.")
+            return embed
+
+        def update_dropdown_and_embed(self):
+            start = self.page * 25
+            end = start + 25
+            current_page_items = all_items_list[start:end]
+            options = [
+                discord.SelectOption(
+                    label=name.title(),
+                    description=f"Buy ${data['buy']:,.2f} | Sell ${data['sell']:,.2f}"
+                )
+                for name, data in current_page_items
+            ]
             for child in list(self.children):
                 if isinstance(child, discord.ui.Select):
                     self.remove_item(child)
+            self.select_menu = discord.ui.Select(
+                placeholder="Select up to 25 items...",
+                min_values=1,
+                max_values=min(25, len(options)),
+                options=options
+            )
+            self.select_menu.callback = self.handle_select
             self.add_item(self.select_menu)
+            self.current_embed = self.create_page_embed()
 
         async def handle_select(self, interaction: discord.Interaction):
             newly_selected = self.select_menu.values
             self.selected_items.extend(newly_selected)
+            self.selected_items = list(dict.fromkeys(self.selected_items))
             await interaction.response.send_message(
                 f"✅ Added: {', '.join(newly_selected)}\n🧾 Total selected so far: {len(self.selected_items)} items",
-                ephemeral=True
+                ephemeral=False
             )
 
         @discord.ui.button(label="⬅️ Prev Page", style=discord.ButtonStyle.secondary)
         async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
             if self.page > 0:
                 self.page -= 1
-                self.update_dropdown()
-                await interaction.response.edit_message(view=self)
+                self.update_dropdown_and_embed()
+                await interaction.response.edit_message(embed=self.current_embed, view=self)
             else:
                 await interaction.response.defer()
 
         @discord.ui.button(label="➡️ Next Page", style=discord.ButtonStyle.secondary)
         async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
-            max_page = (len(all_options) - 1) // 25
+            max_page = total_pages - 1
             if self.page < max_page:
                 self.page += 1
-                self.update_dropdown()
-                await interaction.response.edit_message(view=self)
+                self.update_dropdown_and_embed()
+                await interaction.response.edit_message(embed=self.current_embed, view=self)
             else:
                 await interaction.response.defer()
 
         @discord.ui.button(label="➕ Add More", style=discord.ButtonStyle.secondary)
         async def add_more(self, interaction: discord.Interaction, button: discord.ui.Button):
-            self.update_dropdown()
-            await interaction.response.edit_message(content="🛍️ Select more items to add:", view=self)
+            self.update_dropdown_and_embed()
+            await interaction.response.edit_message(embed=self.current_embed, view=self)
 
+        # ✅ FIXED CALCULATE TOTAL BUTTON
         @discord.ui.button(label="✅ Calculate Total", style=discord.ButtonStyle.success)
         async def calculate_total(self, interaction: discord.Interaction, button: discord.ui.Button):
             if not self.selected_items:
                 await interaction.response.send_message("⚠️ You haven't selected any items yet!", ephemeral=True)
                 return
 
-            unique_selected = list(dict.fromkeys(self.selected_items))
+            selected_items = list(dict.fromkeys(self.selected_items))
+            items_data = load_items()
 
             class QuantityModal(discord.ui.Modal, title="Enter Quantities"):
-                def __init__(self, selected):
+                def __init__(self):
                     super().__init__()
-                    self.selected = selected
-                    for item in selected:
-                        self.add_item(
-                            discord.ui.TextInput(
-                                label=f"{item.title()} quantity",
-                                placeholder="Enter a number",
-                                required=True
-                            )
-                        )
+                    for item in selected_items[:5]:
+                        self.add_item(discord.ui.TextInput(
+                            label=f"{item.title()} Quantity",
+                            placeholder="Enter a number (e.g., 3)",
+                            required=True
+                        ))
 
-                async def on_submit(self, interaction: discord.Interaction):
+                async def on_submit(self, modal_interaction: discord.Interaction):
                     total_buy = 0.0
                     total_sell = 0.0
                     details = []
-                    missing = []
 
-                    for i, item in enumerate(self.selected):
+                    for i, item in enumerate(selected_items[:5]):
                         try:
                             qty = float(self.children[i].value)
                         except ValueError:
-                            missing.append(f"{item.title()} (invalid qty)")
+                            qty = 0
+                        data = items_data.get(item.lower())
+                        if not data:
                             continue
-
-                        key = item.lower()
-                        if key not in items:
-                            missing.append(item.title())
-                            continue
-
-                        data_item = items[key]
-                        buy_val = data_item["buy"] * qty
-                        sell_val = data_item["sell"] * qty
+                        buy_val = data["buy"] * qty
+                        sell_val = data["sell"] * qty
                         total_buy += buy_val
                         total_sell += sell_val
-                        details.append(f"• {item.title()} × {qty} → 🛒 Buy: `${buy_val}` | 💵 Sell: `${sell_val}`")
+                        details.append(f"• {item.title()} × {qty} → 🛒 Buy: `${buy_val:,.2f}` | 💵 Sell: `${sell_val:,.2f}`")
 
                     embed = discord.Embed(title="📦 Total Calculation", color=discord.Color.blurple())
-                    embed.add_field(name="Details", value="\n".join(details) if details else "No valid items found", inline=False)
+                    embed.add_field(name="Details", value="\n".join(details), inline=False)
                     embed.add_field(name="💰 Total Buy", value=f"${total_buy:,.2f}")
                     embed.add_field(name="💵 Total Sell", value=f"${total_sell:,.2f}")
-                    if missing:
-                        embed.add_field(name="⚠️ Invalid", value=", ".join(missing), inline=False)
+                    await modal_interaction.response.send_message(embed=embed)
 
-                    await interaction.response.send_message(embed=embed)
-
-            await interaction.response.send_modal(QuantityModal(unique_selected))
+            # ✅ Open modal correctly (no followup call)
+            await interaction.response.send_modal(QuantityModal())
 
     view = TotalView()
-    await interaction.response.send_message(
-        "🛍️ Select items to calculate total (use ➕ Add More to pick multiple batches):",
-        view=view,
-        ephemeral=True
-    )
+    await interaction.response.send_message(embed=view.current_embed, view=view, ephemeral=False)
 
 # -------------------------------
 # 🔄 MANUAL SYNC COMMAND
