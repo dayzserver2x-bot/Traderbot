@@ -150,10 +150,10 @@ async def shop(interaction: discord.Interaction):
 @bot.tree.command(name="additem", description="Add a new item (Role restricted)")
 async def additem(interaction: discord.Interaction, name: str, buy_price: float, sell_price: float):
     if not has_bot_role(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        await interaction.response.send_message("❌ You don't have permission to use this command.",  ephemeral=False)
         return
     if buy_price < 0 or sell_price < 0:
-        await interaction.response.send_message("⚠️ Prices must be non-negative.", ephemeral=True)
+        await interaction.response.send_message("⚠️ Prices must be non-negative.",  ephemeral=False)
         return
     items = load_items()
     name = name.lower()
@@ -162,7 +162,7 @@ async def additem(interaction: discord.Interaction, name: str, buy_price: float,
         return
     items[name] = {"buy": buy_price, "sell": sell_price}
     save_items(items)
-    await interaction.response.send_message(f"✅ Added {name.title()} (Buy: ${buy_price}, Sell: ${sell_price})", ephemeral=True)
+    await interaction.response.send_message(f"✅ Added {name.title()} (Buy: ${buy_price}, Sell: ${sell_price})",  ephemeral=False)
 
 # -------------------------------
 # 🗑️ REMOVE ITEM
@@ -170,7 +170,7 @@ async def additem(interaction: discord.Interaction, name: str, buy_price: float,
 @bot.tree.command(name="removeitem", description="Remove an item (Role restricted)")
 async def removeitem(interaction: discord.Interaction, name: str):
     if not has_bot_role(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        await interaction.response.send_message("❌ You don't have permission to use this command.",  ephemeral=False)
         return
     items = load_items()
     name = name.lower()
@@ -179,7 +179,7 @@ async def removeitem(interaction: discord.Interaction, name: str):
         return
     del items[name]
     save_items(items)
-    await interaction.response.send_message(f"🗑️ Removed {name.title()}", ephemeral=True)
+    await interaction.response.send_message(f"🗑️ Removed {name.title()}",  ephemeral=False)
 
 # -------------------------------
 # 💲 PRICE COMMAND
@@ -300,7 +300,7 @@ async def total(interaction: discord.Interaction):
             self.selected_items = list(dict.fromkeys(self.selected_items))
             await interaction.response.send_message(
                 f"✅ Added: {', '.join(newly_selected)}\n🧾 Total selected: {len(self.selected_items)} items",
-                ephemeral=True
+               ephemeral=False
             )
 
         @discord.ui.button(label="⬅️ Prev Page", style=discord.ButtonStyle.secondary)
@@ -330,7 +330,7 @@ async def total(interaction: discord.Interaction):
         @discord.ui.button(label="✅ Calculate Total", style=discord.ButtonStyle.success)
         async def calculate_total(self, interaction: discord.Interaction, button: discord.ui.Button):
             if not self.selected_items:
-                await interaction.response.send_message("⚠️ You haven't selected any items yet!", ephemeral=True)
+                await interaction.response.send_message("⚠️ You haven't selected any items yet!",  ephemeral=False)
                 return
 
             selected_items = list(dict.fromkeys(self.selected_items))
