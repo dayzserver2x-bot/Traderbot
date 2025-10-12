@@ -143,7 +143,7 @@ async def price(interaction: discord.Interaction, item_name: str):
         embed.add_field(name="Sell", value=f"${data['sell']:,.2f}")
         await interaction.response.send_message(embed=embed)
     else:
-        await interaction.response.send_message(f"❌ {item_name.title()} not found.", ephemeral=True)
+        await interaction.response.send_message(f"❌ {item_name.title()} not found.", ephemeral=False)
 
 # -------------------------------
 # 🔎 SEARCH COMMAND
@@ -157,7 +157,7 @@ async def search(interaction: discord.Interaction, query: str):
     results = {name: data for name, data in items.items() if query in name}
 
     if not results:
-        await interaction.response.send_message(f"❌ No items found matching '{query}'.", ephemeral=True)
+        await interaction.response.send_message(f"❌ No items found matching '{query}'.", ephemeral=False)
         return
 
     results = dict(sorted(results.items()))
@@ -201,7 +201,7 @@ async def search(interaction: discord.Interaction, query: str):
         @discord.ui.button(label="➕ Add to Total", style=discord.ButtonStyle.success)
         async def add_to_total(self, inter: discord.Interaction, button: discord.ui.Button):
             if not self.selected_item:
-                await inter.response.send_message("⚠️ Please select an item first.", ephemeral=True)
+                await inter.response.send_message("⚠️ Please select an item first.", ephemeral=False)
                 return
 
             user_id = inter.user.id
@@ -227,7 +227,7 @@ async def search(interaction: discord.Interaction, query: str):
 async def total(interaction: discord.Interaction):
     items = load_items()
     if not items:
-        await interaction.response.send_message("⚠️ The shop is empty.", ephemeral=True)
+        await interaction.response.send_message("⚠️ The shop is empty.", ephemeral=False)
         return
 
     user_id = interaction.user.id
@@ -314,7 +314,7 @@ async def total(interaction: discord.Interaction):
         @discord.ui.button(label="📋 View Selected Items", style=discord.ButtonStyle.primary)
         async def view_selected(self, interaction: discord.Interaction, button: discord.ui.Button):
             if not self.selected_items:
-                await interaction.response.send_message("⚠️ You haven't selected any items yet!", ephemeral=True)
+                await interaction.response.send_message("⚠️ You haven't selected any items yet!", ephemeral=False)
                 return
 
             embed = discord.Embed(
@@ -335,12 +335,12 @@ async def total(interaction: discord.Interaction):
             if len(self.selected_items) > 25:
                 embed.set_footer(text="⚠️ Showing first 25 items only.")
 
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=embed, ephemeral=False)
 
         @discord.ui.button(label="✅ Calculate Total", style=discord.ButtonStyle.success)
         async def calculate_total(self, interaction: discord.Interaction, button: discord.ui.Button):
             if not self.selected_items:
-                await interaction.response.send_message("⚠️ You haven't selected any items yet!", ephemeral=True)
+                await interaction.response.send_message("⚠️ You haven't selected any items yet!", ephemeral=False)
                 return
 
             items_data = load_items()
@@ -384,7 +384,7 @@ async def total(interaction: discord.Interaction):
                     if batches:
                         await modal_interaction.response.send_message(
                             f"✅ Recorded {len(self.batch)} items.\nPress **Continue** to enter more quantities or **Finish** to calculate totals.",
-                            ephemeral=True,
+                            ephemeral=False,
                             view=ContinueView()
                         )
                     else:
