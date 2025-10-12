@@ -402,7 +402,7 @@ async def total(interaction: discord.Interaction):
                 if user_id in user_selected_items:
                     del user_selected_items[user_id]
                 self.selected_items.clear()
-                await inter.followup.send("🧹 Your selection has been cleared.", ephemeral=True)
+                await inter.followup.send("🧹 The Shit Is gone.", ephemeral=False)
 
             class ContinueView(discord.ui.View):
                 @discord.ui.button(label="Continue", style=discord.ButtonStyle.secondary)
@@ -411,7 +411,7 @@ async def total(interaction: discord.Interaction):
                         next_batch = batches.pop(0)
                         await inter.response.send_modal(QuantityModal(next_batch))
                     else:
-                        await inter.response.send_message("✅ All items recorded.", ephemeral=True)
+                        await inter.response.send_message("✅ All items recorded.", ephemeral=False)
 
                 @discord.ui.button(label="Finish", style=discord.ButtonStyle.success)
                 async def finish_button(self, inter: discord.Interaction, _):
