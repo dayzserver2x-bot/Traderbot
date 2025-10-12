@@ -206,10 +206,24 @@ async def search(interaction: discord.Interaction, query: str):
 
             user_id = inter.user.id
             user_selected_items.setdefault(user_id, [])
+
+            # ✅ Updated section starts here
             if self.selected_item not in user_selected_items[user_id]:
                 user_selected_items[user_id].append(self.selected_item)
+
+                # 🔢 Calculate running total
+                items_data = load_items()
+                total_buy = 0.0
+                total_sell = 0.0
+                for item in user_selected_items[user_id]:
+                    data = items_data.get(item.lower())
+                    if data:
+                        total_buy += data["buy"]
+                        total_sell += data["sell"]
+
                 await inter.response.send_message(
-                    f"🛒 Added **{self.selected_item}** to your total list!",
+                    f"🛒 Added **{self.selected_item}** to your total list!\n"
+                    f"💰 **Total Buy:** `${total_buy:,.2f}` | 💵 **Total Sell:** `${total_sell:,.2f}`",
                     ephemeral=True
                 )
             else:
@@ -217,6 +231,7 @@ async def search(interaction: discord.Interaction, query: str):
                     f"⚠️ **{self.selected_item}** is already in your total list.",
                     ephemeral=True
                 )
+            # ✅ Updated section ends here
 
     await interaction.response.send_message(embed=embed, view=SearchView())
 
