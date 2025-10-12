@@ -198,28 +198,34 @@ async def price(interaction: discord.Interaction, item_name: str):
         await interaction.response.send_message(f"❌ {item_name.title()} not found.")
 
 # -------------------------------
-# 🔎 SEARCH COMMAND
+# 🔎 SEARCH COMMAND (with Add to Total option)
 # -------------------------------
+user_selected_items = {}  # Temporary in-memory store per user ID
+
 @bot.tree.command(name="search", description="Search for items in the shop by name")
 async def search(interaction: discord.Interaction, query: str):
     items = load_items()
     query = query.lower()
     results = {name: data for name, data in items.items() if query in name}
+
     if not results:
         await interaction.response.send_message(f"❌ No items found matching '{query}'.", ephemeral=False)
         return
+
     results = dict(sorted(results.items()))
     embed = discord.Embed(
         title=f"🔎 Search Results for '{query}'",
         description=f"Found {len(results)} item(s):",
         color=discord.Color.blue()
     )
+
     for name, data in results.items():
         embed.add_field(
             name=name.title(),
             value=f"💰 Buy: ${data['buy']:,.2f} | 💵 Sell: ${data['sell']:,.2f}",
             inline=True
         )
+
     if len(embed.fields) > 25:
         embed.clear_fields()
         limited = list(results.items())[:25]
@@ -230,10 +236,55 @@ async def search(interaction: discord.Interaction, query: str):
                 inline=True
             )
         embed.set_footer(text="⚠️ Showing first 25 results only.")
-    await interaction.response.send_message(embed=embed)
+
+    class SearchView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=60)
+            self.options = [
+                discord.SelectOption(label=name.title(), description=f"Buy ${data['buy']:,.2f} | Sell ${data['sell']:,.2f}")
+                for name, data in list(results.items())[:25]
+            ]
+            self.selected_item = None
+            self.select = discord.ui.Select(
+                placeholder="Select an item to add to total...",
+                options=self.options,
+                min_values=1,
+                max_values=1
+            )
+            self.select.callback = self.select_callback
+            self.add_item(self.select)
+
+        async def select_callback(self, inter: discord.Interaction):
+            self.selected_item = self.select.values[0]
+            await inter.response.send_message(
+                f"✅ Selected **{self.selected_item}**. Click 'Add to Total' to save it.",
+                ephemeral=True
+            )
+
+        @discord.ui.button(label="➕ Add to Total", style=discord.ButtonStyle.success)
+        async def add_to_total(self, inter: discord.Interaction, button: discord.ui.Button):
+            if not self.selected_item:
+                await inter.response.send_message("⚠️ Please select an item first.", ephemeral=True)
+                return
+
+            user_id = inter.user.id
+            user_selected_items.setdefault(user_id, [])
+            if self.selected_item not in user_selected_items[user_id]:
+                user_selected_items[user_id].append(self.selected_item)
+                await inter.response.send_message(
+                    f"🛒 Added **{self.selected_item}** to your total list!",
+                    ephemeral=False
+                )
+            else:
+                await inter.response.send_message(
+                    f"⚠️ **{self.selected_item}** is already in your total list.",
+                    ephemeral=True
+                )
+
+    await interaction.response.send_message(embed=embed, view=SearchView())
 
 # -------------------------------
-# 💰 TOTAL COMMAND (Fixed Version - Non-recursive batching)
+# 💰 TOTAL COMMAND (Fixed Version - Now includes saved selections)
 # -------------------------------
 @bot.tree.command(name="total", description="Calculate total buy/sell value of multiple items")
 async def total(interaction: discord.Interaction):
@@ -242,13 +293,16 @@ async def total(interaction: discord.Interaction):
         await interaction.response.send_message("⚠️ The shop is empty.", ephemeral=False)
         return
 
+    # Load user's previously selected items from search
+    user_id = interaction.user.id
+    preselected_items = user_selected_items.get(user_id, [])
     all_items_list = list(sorted(items.items()))
     total_pages = (len(all_items_list) - 1) // 25 + 1
 
     class TotalView(discord.ui.View):
         def __init__(self):
             super().__init__(timeout=None)
-            self.selected_items = []
+            self.selected_items = list(dict.fromkeys(preselected_items))
             self.page = 0
             self.update_dropdown_and_embed()
 
@@ -267,7 +321,7 @@ async def total(interaction: discord.Interaction):
                     value=f"💰 Buy: ${data['buy']:,.2f} | 💵 Sell: ${data['sell']:,.2f}",
                     inline=True
                 )
-            embed.set_footer(text="Use ➕ Add More to continue selecting items.")
+            embed.set_footer(text=f"Preselected items: {len(self.selected_items)}")
             return embed
 
         def update_dropdown_and_embed(self):
@@ -320,11 +374,6 @@ async def total(interaction: discord.Interaction):
                 await interaction.response.edit_message(embed=self.current_embed, view=self)
             else:
                 await interaction.response.defer()
-
-        @discord.ui.button(label="➕ Add More", style=discord.ButtonStyle.secondary)
-        async def add_more(self, interaction: discord.Interaction, button: discord.ui.Button):
-            self.update_dropdown_and_embed()
-            await interaction.response.edit_message(embed=self.current_embed, view=self)
 
         @discord.ui.button(label="✅ Calculate Total", style=discord.ButtonStyle.success)
         async def calculate_total(self, interaction: discord.Interaction, button: discord.ui.Button):
