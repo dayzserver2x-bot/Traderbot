@@ -198,9 +198,9 @@ async def price(interaction: discord.Interaction, item_name: str):
         await interaction.response.send_message(f"❌ {item_name.title()} not found.")
 
 # -------------------------------
-# 🔎 SEARCH COMMAND (with Add to Total option)
+# 🔎 SEARCH COMMAND
 # -------------------------------
-user_selected_items = {}  # Temporary in-memory store per user ID
+user_selected_items = {}
 
 @bot.tree.command(name="search", description="Search for items in the shop by name")
 async def search(interaction: discord.Interaction, query: str):
@@ -284,7 +284,7 @@ async def search(interaction: discord.Interaction, query: str):
     await interaction.response.send_message(embed=embed, view=SearchView())
 
 # -------------------------------
-# 💰 TOTAL COMMAND (Fixed Version - Now includes saved selections)
+# 💰 TOTAL COMMAND (with View Selected)
 # -------------------------------
 @bot.tree.command(name="total", description="Calculate total buy/sell value of multiple items")
 async def total(interaction: discord.Interaction):
@@ -293,12 +293,12 @@ async def total(interaction: discord.Interaction):
         await interaction.response.send_message("⚠️ The shop is empty.", ephemeral=False)
         return
 
-    # Load user's previously selected items from search
     user_id = interaction.user.id
     preselected_items = user_selected_items.get(user_id, [])
     all_items_list = list(sorted(items.items()))
     total_pages = (len(all_items_list) - 1) // 25 + 1
 
+    # --- UPDATED VIEW STARTS HERE ---
     class TotalView(discord.ui.View):
         def __init__(self):
             super().__init__(timeout=None)
@@ -374,6 +374,21 @@ async def total(interaction: discord.Interaction):
                 await interaction.response.edit_message(embed=self.current_embed, view=self)
             else:
                 await interaction.response.defer()
+
+        # 🆕 NEW BUTTON
+        @discord.ui.button(label="🧾 View Selected", style=discord.ButtonStyle.primary)
+        async def view_selected(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if not self.selected_items:
+                await interaction.response.send_message("⚠️ You haven't selected any items yet!", ephemeral=False)
+                return
+
+            items_text = "\n".join([f"• {item}" for item in self.selected_items])
+            embed = discord.Embed(
+                title=f"🧾 Selected Items ({len(self.selected_items)})",
+                description=items_text[:4090] + ("…" if len(items_text) > 4096 else ""),
+                color=discord.Color.blurple()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=False)
 
         @discord.ui.button(label="✅ Calculate Total", style=discord.ButtonStyle.success)
         async def calculate_total(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -452,6 +467,7 @@ async def total(interaction: discord.Interaction):
             first_batch = batches.pop(0)
             await interaction.response.send_modal(QuantityModal(first_batch))
 
+    # --- UPDATED VIEW ENDS HERE ---
     view = TotalView()
     await interaction.response.send_message(embed=view.current_embed, view=view)
 
@@ -463,13 +479,4 @@ async def total(interaction: discord.Interaction):
 async def sync(ctx):
     await ctx.send("🔄 Syncing slash commands...")
     synced = await bot.tree.sync()
-    await ctx.send(f"✅ Synced {len(synced)} global slash commands.")
-
-# -------------------------------
-# 🚀 RUN BOT WITH KEEP ALIVE
-# -------------------------------
-if not TOKEN:
-    print("❌ ERROR: Discord token not found in .env")
-else:
-    keep_alive()
-    bot.run(TOKEN)
+    await ctx.send(f"✅ Synced {len
