@@ -258,13 +258,13 @@ async def search(interaction: discord.Interaction, query: str):
             self.selected_item = self.select.values[0]
             await inter.response.send_message(
                 f"✅ Selected **{self.selected_item}**. Click 'Add to Total' to save it.",
-                ephemeral=True
+                ephemeral=False
             )
 
         @discord.ui.button(label="➕ Add to Total", style=discord.ButtonStyle.success)
         async def add_to_total(self, inter: discord.Interaction, button: discord.ui.Button):
             if not self.selected_item:
-                await inter.response.send_message("⚠️ Please select an item first.", ephemeral=True)
+                await inter.response.send_message("⚠️ Please select an item first.", ephemeral=False)
                 return
 
             user_id = inter.user.id
@@ -278,7 +278,7 @@ async def search(interaction: discord.Interaction, query: str):
             else:
                 await inter.response.send_message(
                     f"⚠️ **{self.selected_item}** is already in your total list.",
-                    ephemeral=True
+                    ephemeral=False
                 )
 
     await interaction.response.send_message(embed=embed, view=SearchView())
