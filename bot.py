@@ -192,9 +192,10 @@ async def search(interaction: discord.Interaction, query: str):
             self.add_item(self.select)
 
         async def select_callback(self, inter: discord.Interaction):
-            self.selected_item = self.select.values[0]
+            # ✅ FIXED: Always store lowercase name
+            self.selected_item = self.select.values[0].lower()
             await inter.response.send_message(
-                f"✅ Selected **{self.selected_item}**. Click 'Add to Total' to save it.",
+                f"✅ Selected **{self.selected_item.title()}**. Click 'Add to Total' to save it.",
                 ephemeral=True
             )
 
@@ -206,32 +207,17 @@ async def search(interaction: discord.Interaction, query: str):
 
             user_id = inter.user.id
             user_selected_items.setdefault(user_id, [])
-
-            # ✅ Updated section starts here
             if self.selected_item not in user_selected_items[user_id]:
                 user_selected_items[user_id].append(self.selected_item)
-
-                # 🔢 Calculate running total
-                items_data = load_items()
-                total_buy = 0.0
-                total_sell = 0.0
-                for item in user_selected_items[user_id]:
-                    data = items_data.get(item.lower())
-                    if data:
-                        total_buy += data["buy"]
-                        total_sell += data["sell"]
-
                 await inter.response.send_message(
-                    f"🛒 Added **{self.selected_item}** to your total list!\n"
-                    f"💰 **Total Buy:** `${total_buy:,.2f}` | 💵 **Total Sell:** `${total_sell:,.2f}`",
+                    f"🛒 Added **{self.selected_item.title()}** to your total list!",
                     ephemeral=True
                 )
             else:
                 await inter.response.send_message(
-                    f"⚠️ **{self.selected_item}** is already in your total list.",
+                    f"⚠️ **{self.selected_item.title()}** is already in your total list.",
                     ephemeral=True
                 )
-            # ✅ Updated section ends here
 
     await interaction.response.send_message(embed=embed, view=SearchView())
 
@@ -246,7 +232,8 @@ async def total(interaction: discord.Interaction):
         return
 
     user_id = interaction.user.id
-    preselected_items = user_selected_items.get(user_id, [])
+    # ✅ FIXED: Normalize all preselected items to lowercase
+    preselected_items = [i.lower() for i in user_selected_items.get(user_id, [])]
     all_items_list = list(sorted(items.items()))
     total_pages = (len(all_items_list) - 1) // 25 + 1
 
@@ -300,11 +287,11 @@ async def total(interaction: discord.Interaction):
             self.current_embed = self.create_page_embed()
 
         async def handle_select(self, interaction: discord.Interaction):
-            newly_selected = self.select_menu.values
+            newly_selected = [i.lower() for i in self.select_menu.values]
             self.selected_items.extend(newly_selected)
             self.selected_items = list(dict.fromkeys(self.selected_items))
             await interaction.response.send_message(
-                f"✅ Added: {', '.join(newly_selected)}\n🧾 Total selected: {len(self.selected_items)} items",
+                f"✅ Added: {', '.join([i.title() for i in newly_selected])}\n🧾 Total selected: {len(self.selected_items)} items",
                 ephemeral=True
             )
 
@@ -417,7 +404,7 @@ async def total(interaction: discord.Interaction):
                 if user_id in user_selected_items:
                     del user_selected_items[user_id]
                 self.selected_items.clear()
-                await inter.followup.send("🧹 The Shit Is gone.", ephemeral=False)
+                await inter.followup.send("🧹 All selected items have been cleared.", ephemeral=False)
 
             class ContinueView(discord.ui.View):
                 @discord.ui.button(label="Continue", style=discord.ButtonStyle.secondary)
