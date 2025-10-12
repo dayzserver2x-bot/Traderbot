@@ -176,7 +176,7 @@ async def search(interaction: discord.Interaction, query: str):
 
     class SearchView(discord.ui.View):
         def __init__(self):
-            super().__init__(timeout=60)
+            super().__init__(timeout=600)  # ⏰ 10-minute timeout
             self.options = [
                 discord.SelectOption(label=name.title(), description=f"Buy ${data['buy']:,.2f} | Sell ${data['sell']:,.2f}")
                 for name, data in list(results.items())[:25]
@@ -191,8 +191,16 @@ async def search(interaction: discord.Interaction, query: str):
             self.select.callback = self.select_callback
             self.add_item(self.select)
 
+        async def on_timeout(self):
+            for child in self.children:
+                if isinstance(child, (discord.ui.Button, discord.ui.Select)):
+                    child.disabled = True
+            try:
+                await self.message.edit(content="⏰ This menu has timed out.", view=self)
+            except Exception:
+                pass
+
         async def select_callback(self, inter: discord.Interaction):
-            # ✅ FIXED: Always store lowercase name
             self.selected_item = self.select.values[0].lower()
             await inter.response.send_message(
                 f"✅ Selected **{self.selected_item.title()}**. Click 'Add to Total' to save it.",
@@ -219,10 +227,12 @@ async def search(interaction: discord.Interaction, query: str):
                     ephemeral=True
                 )
 
-    await interaction.response.send_message(embed=embed, view=SearchView())
+    view = SearchView()
+    sent_msg = await interaction.response.send_message(embed=embed, view=view)
+    view.message = await sent_msg.original_response()
 
 # -------------------------------
-# 💰 TOTAL COMMAND (Fixed & Improved)
+# 💰 TOTAL COMMAND (with timeout)
 # -------------------------------
 @bot.tree.command(name="total", description="Calculate total buy/sell value of multiple items")
 async def total(interaction: discord.Interaction):
@@ -232,17 +242,25 @@ async def total(interaction: discord.Interaction):
         return
 
     user_id = interaction.user.id
-    # ✅ FIXED: Normalize all preselected items to lowercase
     preselected_items = [i.lower() for i in user_selected_items.get(user_id, [])]
     all_items_list = list(sorted(items.items()))
     total_pages = (len(all_items_list) - 1) // 25 + 1
 
     class TotalView(discord.ui.View):
         def __init__(self):
-            super().__init__(timeout=None)
+            super().__init__(timeout=600)  # ⏰ 10-minute timeout
             self.selected_items = list(dict.fromkeys(preselected_items))
             self.page = 0
             self.update_dropdown_and_embed()
+
+        async def on_timeout(self):
+            for child in self.children:
+                if isinstance(child, (discord.ui.Button, discord.ui.Select)):
+                    child.disabled = True
+            try:
+                await self.message.edit(content="⏰ This total menu has timed out.", view=self)
+            except Exception:
+                pass
 
         def create_page_embed(self):
             start = self.page * 25
@@ -400,7 +418,6 @@ async def total(interaction: discord.Interaction):
                 summary.add_field(name="💵 Total Sell", value=f"${total_sell:,.2f}")
                 await inter.response.send_message(embed=summary)
 
-                # 🧹 Auto-clear user's selection after final summary
                 if user_id in user_selected_items:
                     del user_selected_items[user_id]
                 self.selected_items.clear()
@@ -423,7 +440,8 @@ async def total(interaction: discord.Interaction):
             await interaction.response.send_modal(QuantityModal(first_batch))
 
     view = TotalView()
-    await interaction.response.send_message(embed=view.current_embed, view=view)
+    sent_msg = await interaction.response.send_message(embed=view.current_embed, view=view)
+    view.message = await sent_msg.original_response()
 
 # -------------------------------
 # 🔄 MANUAL SYNC COMMAND
