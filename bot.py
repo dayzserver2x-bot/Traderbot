@@ -210,9 +210,11 @@ async def search(interaction: discord.Interaction, query: str):
             if self.selected_item not in user_selected_items[user_id]:
                 user_selected_items[user_id].add(self.selected_item)
                 await inter.response.send_message(
-                    f"🛒 Added **{self.selected_item.title()}** to your total list!",
+                    f"🛒 Added **{self.selected_item.title()}** to your total list!\n➡️ Opening total view...",
                     ephemeral=True
                 )
+                # ✅ Automatically open /total view
+                await total.callback(inter)
             else:
                 await inter.response.send_message(
                     f"⚠️ **{self.selected_item.title()}** is already in your total list.",
