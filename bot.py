@@ -42,6 +42,7 @@ BOT_ROLE_ID = os.getenv("BOT_ROLE_ID")
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+intents.guilds = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # -------------------------------
@@ -146,9 +147,9 @@ async def price(interaction: discord.Interaction, item_name: str):
         await interaction.response.send_message(f"❌ {item_name.title()} not found.", ephemeral=False)
 
 # -------------------------------
-# 🔎 SEARCH COMMAND
+# 🔎 SEARCH COMMAND (SYNC FIXED)
 # -------------------------------
-user_selected_items = {}
+user_selected_items = {}  # user_id: set of item names
 
 @bot.tree.command(name="search", description="Search for items in the shop by name")
 async def search(interaction: discord.Interaction, query: str):
@@ -192,7 +193,6 @@ async def search(interaction: discord.Interaction, query: str):
             self.add_item(self.select)
 
         async def select_callback(self, inter: discord.Interaction):
-            # ✅ FIXED: Always store lowercase name
             self.selected_item = self.select.values[0].lower()
             await inter.response.send_message(
                 f"✅ Selected **{self.selected_item.title()}**. Click 'Add to Total' to save it.",
@@ -206,9 +206,9 @@ async def search(interaction: discord.Interaction, query: str):
                 return
 
             user_id = inter.user.id
-            user_selected_items.setdefault(user_id, [])
+            user_selected_items.setdefault(user_id, set())
             if self.selected_item not in user_selected_items[user_id]:
-                user_selected_items[user_id].append(self.selected_item)
+                user_selected_items[user_id].add(self.selected_item)
                 await inter.response.send_message(
                     f"🛒 Added **{self.selected_item.title()}** to your total list!",
                     ephemeral=True
@@ -222,7 +222,7 @@ async def search(interaction: discord.Interaction, query: str):
     await interaction.response.send_message(embed=embed, view=SearchView())
 
 # -------------------------------
-# 💰 TOTAL COMMAND (Fixed & Improved)
+# 💰 TOTAL COMMAND (SYNC FIXED)
 # -------------------------------
 @bot.tree.command(name="total", description="Calculate total buy/sell value of multiple items")
 async def total(interaction: discord.Interaction):
@@ -232,8 +232,7 @@ async def total(interaction: discord.Interaction):
         return
 
     user_id = interaction.user.id
-    # ✅ FIXED: Normalize all preselected items to lowercase
-    preselected_items = [i.lower() for i in user_selected_items.get(user_id, [])]
+    preselected_items = list(user_selected_items.get(user_id, set()))
     all_items_list = list(sorted(items.items()))
     total_pages = (len(all_items_list) - 1) // 25 + 1
 
@@ -290,6 +289,7 @@ async def total(interaction: discord.Interaction):
             newly_selected = [i.lower() for i in self.select_menu.values]
             self.selected_items.extend(newly_selected)
             self.selected_items = list(dict.fromkeys(self.selected_items))
+            user_selected_items.setdefault(user_id, set()).update(self.selected_items)
             await interaction.response.send_message(
                 f"✅ Added: {', '.join([i.title() for i in newly_selected])}\n🧾 Total selected: {len(self.selected_items)} items",
                 ephemeral=True
@@ -401,8 +401,7 @@ async def total(interaction: discord.Interaction):
                 await inter.response.send_message(embed=summary)
 
                 # 🧹 Auto-clear user's selection after final summary
-                if user_id in user_selected_items:
-                    del user_selected_items[user_id]
+                user_selected_items.pop(user_id, None)
                 self.selected_items.clear()
                 await inter.followup.send("🧹 All selected items have been cleared.", ephemeral=False)
 
