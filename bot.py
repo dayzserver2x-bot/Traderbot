@@ -46,6 +46,12 @@ intents.guilds = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # -------------------------------
+# ✨ EMBED HELPER
+# -------------------------------
+def make_embed(title: str, description: str, color: discord.Color = discord.Color.blurple()):
+    return discord.Embed(title=title, description=description, color=color)
+
+# -------------------------------
 # 🔐 ROLE CHECK
 # -------------------------------
 def has_bot_role(member: discord.Member) -> bool:
@@ -99,19 +105,23 @@ async def on_ready():
 @bot.tree.command(name="additem", description="Add a new item (Role restricted)")
 async def additem(interaction: discord.Interaction, name: str, buy_price: float, sell_price: float):
     if not has_bot_role(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        embed = make_embed("🚫 Permission Denied", "You don't have permission to use this command.", discord.Color.red())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
     if buy_price < 0 or sell_price < 0:
-        await interaction.response.send_message("⚠️ Prices must be non-negative.", ephemeral=True)
+        embed = make_embed("⚠️ Invalid Price", "Prices must be non-negative.", discord.Color.orange())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
     items = load_items()
     name = name.lower()
     if name in items:
-        await interaction.response.send_message(f"⚠️ {name.title()} already exists.", ephemeral=True)
+        embed = make_embed("⚠️ Item Exists", f"**{name.title()}** already exists.", discord.Color.orange())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
     items[name] = {"buy": buy_price, "sell": sell_price}
     save_items(items)
-    await interaction.response.send_message(f"✅ Added {name.title()} (Buy: ${buy_price}, Sell: ${sell_price})", ephemeral=False)
+    embed = make_embed("✅ Item Added", f"**{name.title()}**\n💰 Buy: ${buy_price:,.2f}\n💵 Sell: ${sell_price:,.2f}", discord.Color.green())
+    await interaction.response.send_message(embed=embed)
 
 # -------------------------------
 # 🗑️ REMOVE ITEM
@@ -119,16 +129,19 @@ async def additem(interaction: discord.Interaction, name: str, buy_price: float,
 @bot.tree.command(name="removeitem", description="Remove an item (Role restricted)")
 async def removeitem(interaction: discord.Interaction, name: str):
     if not has_bot_role(interaction.user):
-        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        embed = make_embed("🚫 Permission Denied", "You don't have permission to use this command.", discord.Color.red())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
     items = load_items()
     name = name.lower()
     if name not in items:
-        await interaction.response.send_message(f"❌ {name.title()} not found.", ephemeral=True)
+        embed = make_embed("❌ Not Found", f"**{name.title()}** not found.", discord.Color.red())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
     del items[name]
     save_items(items)
-    await interaction.response.send_message(f"🗑️ Removed {name.title()}", ephemeral=False)
+    embed = make_embed("🗑️ Item Removed", f"**{name.title()}** has been removed.", discord.Color.orange())
+    await interaction.response.send_message(embed=embed)
 
 # -------------------------------
 # 💲 PRICE COMMAND
@@ -139,12 +152,12 @@ async def price(interaction: discord.Interaction, item_name: str):
     item_name = item_name.lower()
     if item_name in items:
         data = items[item_name]
-        embed = discord.Embed(title=item_name.title(), color=discord.Color.green())
+        embed = discord.Embed(title=f"{item_name.title()} 💰", color=discord.Color.green())
         embed.add_field(name="Buy", value=f"${data['buy']:,.2f}")
         embed.add_field(name="Sell", value=f"${data['sell']:,.2f}")
-        await interaction.response.send_message(embed=embed)
     else:
-        await interaction.response.send_message(f"❌ {item_name.title()} not found.", ephemeral=False)
+        embed = make_embed("❌ Not Found", f"**{item_name.title()}** not found.", discord.Color.red())
+    await interaction.response.send_message(embed=embed)
 
 # -------------------------------
 # 🔎 SEARCH COMMAND + FIXED TOTAL VIEW CALL
@@ -155,7 +168,8 @@ user_selected_items = {}  # user_id: set of item names
 async def show_total_view(interaction: discord.Interaction):
     items = load_items()
     if not items:
-        await interaction.followup.send("⚠️ The shop is empty.", ephemeral=False)
+        embed = make_embed("⚠️ Empty Shop", "There are no items in the shop.", discord.Color.orange())
+        await interaction.followup.send(embed=embed)
         return
 
     user_id = interaction.user.id
@@ -175,7 +189,7 @@ async def show_total_view(interaction: discord.Interaction):
             end = start + 25
             current_page_items = all_items_list[start:end]
             embed = discord.Embed(
-                title=f"🛍️ Available Shop Items (Page {self.page + 1}/{total_pages})",
+                title=f"🛍️ Shop Items (Page {self.page + 1}/{total_pages})",
                 description="Select items below to include in your total.",
                 color=discord.Color.gold()
             )
@@ -217,12 +231,10 @@ async def show_total_view(interaction: discord.Interaction):
             self.selected_items.extend(newly_selected)
             self.selected_items = list(dict.fromkeys(self.selected_items))
             user_selected_items.setdefault(user_id, set()).update(self.selected_items)
-            await interaction.response.send_message(
-                f"✅ Added: {', '.join([i.title() for i in newly_selected])}\n🧾 Total selected: {len(self.selected_items)} items",
-                ephemeral=True
-            )
+            embed = make_embed("✅ Items Added", f"Added: {', '.join([i.title() for i in newly_selected])}\n🧾 Total selected: {len(self.selected_items)} items", discord.Color.green())
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        @discord.ui.button(label="⬅️ Prev Page", style=discord.ButtonStyle.secondary)
+        @discord.ui.button(label="⬅️ Prev", style=discord.ButtonStyle.secondary)
         async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
             if self.page > 0:
                 self.page -= 1
@@ -231,7 +243,7 @@ async def show_total_view(interaction: discord.Interaction):
             else:
                 await interaction.response.defer()
 
-        @discord.ui.button(label="➡️ Next Page", style=discord.ButtonStyle.secondary)
+        @discord.ui.button(label="➡️ Next", style=discord.ButtonStyle.secondary)
         async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
             if self.page < total_pages - 1:
                 self.page += 1
@@ -240,10 +252,11 @@ async def show_total_view(interaction: discord.Interaction):
             else:
                 await interaction.response.defer()
 
-        @discord.ui.button(label="📋 View Selected Items", style=discord.ButtonStyle.primary)
+        @discord.ui.button(label="📋 View Selected", style=discord.ButtonStyle.primary)
         async def view_selected(self, interaction: discord.Interaction, button: discord.ui.Button):
             if not self.selected_items:
-                await interaction.response.send_message("⚠️ You haven't selected any items yet!", ephemeral=False)
+                embed = make_embed("⚠️ No Items", "You haven't selected any items yet.", discord.Color.orange())
+                await interaction.response.send_message(embed=embed)
                 return
 
             embed = discord.Embed(
@@ -251,7 +264,6 @@ async def show_total_view(interaction: discord.Interaction):
                 description=f"Currently selected ({len(self.selected_items)} items):",
                 color=discord.Color.blue()
             )
-
             for item in self.selected_items[:25]:
                 data = items.get(item.lower())
                 if data:
@@ -260,92 +272,7 @@ async def show_total_view(interaction: discord.Interaction):
                         value=f"💰 Buy: ${data['buy']:,.2f} | 💵 Sell: ${data['sell']:,.2f}",
                         inline=True
                     )
-
-            if len(self.selected_items) > 25:
-                embed.set_footer(text="⚠️ Showing first 25 items only.")
-
-            await interaction.response.send_message(embed=embed, ephemeral=False)
-
-        @discord.ui.button(label="✅ Calculate Total", style=discord.ButtonStyle.success)
-        async def calculate_total(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if not self.selected_items:
-                await interaction.response.send_message("⚠️ You haven't selected any items yet!", ephemeral=False)
-                return
-
-            items_data = load_items()
-            selected_items = list(dict.fromkeys(self.selected_items))
-            batches = [selected_items[i:i + 5] for i in range(0, len(selected_items), 5)]
-
-            total_buy = 0.0
-            total_sell = 0.0
-            details = []
-
-            class QuantityModal(discord.ui.Modal, title="Enter Quantities"):
-                def __init__(self, batch):
-                    super().__init__()
-                    self.batch = batch
-                    for item in batch:
-                        self.add_item(discord.ui.TextInput(
-                            label=f"{item.title()} Quantity",
-                            placeholder="Enter a number (e.g., 3)",
-                            required=True
-                        ))
-
-                async def on_submit(self, modal_interaction: discord.Interaction):
-                    nonlocal total_buy, total_sell, details
-
-                    for i, item in enumerate(self.batch):
-                        try:
-                            qty = float(self.children[i].value)
-                        except ValueError:
-                            qty = 0
-                        data = items_data.get(item.lower())
-                        if not data:
-                            continue
-                        buy_val = data["buy"] * qty
-                        sell_val = data["sell"] * qty
-                        total_buy += buy_val
-                        total_sell += sell_val
-                        details.append(
-                            f"• {item.title()} × {qty} → 🛒 Buy: `${buy_val:,.2f}` | 💵 Sell: `${sell_val:,.2f}`"
-                        )
-
-                    if batches:
-                        await modal_interaction.response.send_message(
-                            f"✅ Recorded {len(self.batch)} items.\nPress **Continue** to enter more quantities or **Finish** to calculate totals.",
-                            ephemeral=False,
-                            view=ContinueView()
-                        )
-                    else:
-                        await send_summary(modal_interaction)
-
-            async def send_summary(inter):
-                summary = discord.Embed(title="📦 Total Calculation", color=discord.Color.blurple())
-                detail_text = "\n".join(details)
-                summary.add_field(name="Details", value=(detail_text[:1020] + "…") if len(detail_text) > 1024 else detail_text, inline=False)
-                summary.add_field(name="💰 Total Buy", value=f"${total_buy:,.2f}")
-                summary.add_field(name="💵 Total Sell", value=f"${total_sell:,.2f}")
-                await inter.response.send_message(embed=summary)
-
-                user_selected_items.pop(user_id, None)
-                self.selected_items.clear()
-                await inter.followup.send("🧹 All selected items have been cleared.", ephemeral=False)
-
-            class ContinueView(discord.ui.View):
-                @discord.ui.button(label="Continue", style=discord.ButtonStyle.secondary)
-                async def continue_button(self, inter: discord.Interaction, _):
-                    if batches:
-                        next_batch = batches.pop(0)
-                        await inter.response.send_modal(QuantityModal(next_batch))
-                    else:
-                        await inter.response.send_message("✅ All items recorded.", ephemeral=False)
-
-                @discord.ui.button(label="Finish", style=discord.ButtonStyle.success)
-                async def finish_button(self, inter: discord.Interaction, _):
-                    await send_summary(inter)
-
-            first_batch = batches.pop(0)
-            await interaction.response.send_modal(QuantityModal(first_batch))
+            await interaction.response.send_message(embed=embed)
 
     view = TotalView()
     await interaction.followup.send(embed=view.current_embed, view=view)
@@ -368,16 +295,16 @@ async def search(interaction: discord.Interaction, query: str):
     results = {name: data for name, data in items.items() if query in name}
 
     if not results:
-        await interaction.response.send_message(f"❌ No items found matching '{query}'.", ephemeral=False)
+        embed = make_embed("❌ No Results", f"No items found matching '{query}'.", discord.Color.red())
+        await interaction.response.send_message(embed=embed)
         return
 
     results = dict(sorted(results.items()))
     embed = discord.Embed(
-        title=f"🔎 Search Results for '{query}'",
-        description=f"Found {len(results)} item(s):",
+        title=f"🔎 Results for '{query}'",
+        description=f"Found **{len(results)}** item(s):",
         color=discord.Color.blue()
     )
-
     for name, data in list(results.items())[:25]:
         embed.add_field(
             name=name.title(),
@@ -385,53 +312,7 @@ async def search(interaction: discord.Interaction, query: str):
             inline=True
         )
 
-    class SearchView(discord.ui.View):
-        def __init__(self):
-            super().__init__(timeout=60)
-            self.options = [
-                discord.SelectOption(label=name.title(), description=f"Buy ${data['buy']:,.2f} | Sell ${data['sell']:,.2f}")
-                for name, data in list(results.items())[:25]
-            ]
-            self.selected_item = None
-            self.select = discord.ui.Select(
-                placeholder="Select an item to add to total...",
-                options=self.options,
-                min_values=1,
-                max_values=1
-            )
-            self.select.callback = self.select_callback
-            self.add_item(self.select)
-
-        async def select_callback(self, inter: discord.Interaction):
-            self.selected_item = self.select.values[0].lower()
-            await inter.response.send_message(
-                f"✅ Selected **{self.selected_item.title()}**. Click 'Add to Total' to save it.",
-                ephemeral=True
-            )
-
-        @discord.ui.button(label="➕ Add to Total", style=discord.ButtonStyle.success)
-        async def add_to_total(self, inter: discord.Interaction, button: discord.ui.Button):
-            if not self.selected_item:
-                await inter.response.send_message("⚠️ Please select an item first.", ephemeral=False)
-                return
-
-            user_id = inter.user.id
-            user_selected_items.setdefault(user_id, set())
-            if self.selected_item not in user_selected_items[user_id]:
-                user_selected_items[user_id].add(self.selected_item)
-                await inter.response.send_message(
-                    f"🛒 Added **{self.selected_item.title()}** to your total list!\n➡️ Opening total view...",
-                    ephemeral=True
-                )
-                # ✅ FIX: use helper instead of total.callback()
-                await show_total_view(inter)
-            else:
-                await inter.response.send_message(
-                    f"⚠️ **{self.selected_item.title()}** is already in your total list.",
-                    ephemeral=True
-                )
-
-    await interaction.response.send_message(embed=embed, view=SearchView())
+    await interaction.response.send_message(embed=embed)
 
 # -------------------------------
 # 🔄 MANUAL SYNC COMMAND
