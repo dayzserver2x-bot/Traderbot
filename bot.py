@@ -266,118 +266,86 @@ async def show_total_view(interaction: discord.Interaction):
 
             await interaction.response.send_message(embed=embed, ephemeral=False)
 
-        # -------------------------------
-        # ✅ REPLACED: Multi-step Ephemeral Total Flow
-        # -------------------------------
         @discord.ui.button(label="✅ Calculate Total", style=discord.ButtonStyle.success)
         async def calculate_total(self, interaction: discord.Interaction, button: discord.ui.Button):
             if not self.selected_items:
-                await interaction.response.send_message("⚠️ You haven't selected any items yet!", ephemeral=True)
+                await interaction.response.send_message("⚠️ You haven't selected any items yet!", ephemeral=False)
                 return
 
             items_data = load_items()
             selected_items = list(dict.fromkeys(self.selected_items))
-            user_id = interaction.user.id
+            batches = [selected_items[i:i + 5] for i in range(0, len(selected_items), 5)]
 
-            # Store progress
-            progress = {
-                "index": 0,
-                "quantities": {item: 0 for item in selected_items},
-                "subtotal_buy": 0.0,
-                "subtotal_sell": 0.0
-            }
+            total_buy = 0.0
+            total_sell = 0.0
+            details = []
 
-            async def show_item_prompt(inter: discord.Interaction):
-                current_item = selected_items[progress["index"]]
-                data = items_data.get(current_item.lower())
-                embed = discord.Embed(
-                    title=f"📦 Enter Quantity ({progress['index'] + 1}/{len(selected_items)})",
-                    description=(
-                        f"**{current_item.title()}**\n💰 Buy: `${data['buy']:,.2f}` | 💵 Sell: `${data['sell']:,.2f}`\n\n"
-                        f"🧾 **Current Subtotal**\nBuy: `${progress['subtotal_buy']:,.2f}` | Sell: `${progress['subtotal_sell']:,.2f}`"
-                    ),
-                    color=discord.Color.blurple()
-                )
+            class QuantityModal(discord.ui.Modal, title="Enter Quantities"):
+                def __init__(self, batch):
+                    super().__init__()
+                    self.batch = batch
+                    for item in batch:
+                        self.add_item(discord.ui.TextInput(
+                            label=f"{item.title()} Quantity",
+                            placeholder="Enter a number (e.g., 3)",
+                            required=True
+                        ))
 
-                class QuantityView(discord.ui.View):
-                    def __init__(self):
-                        super().__init__(timeout=120)
+                async def on_submit(self, modal_interaction: discord.Interaction):
+                    nonlocal total_buy, total_sell, details
 
-                    @discord.ui.button(label="⬅️ Back", style=discord.ButtonStyle.secondary)
-                    async def back(self, inter: discord.Interaction, _):
-                        if progress["index"] > 0:
-                            progress["index"] -= 1
-                            await show_item_prompt(inter)
-                        else:
-                            await inter.response.send_message("⚠️ Already at the first item.", ephemeral=True)
+                    for i, item in enumerate(self.batch):
+                        try:
+                            qty = float(self.children[i].value)
+                        except ValueError:
+                            qty = 0
+                        data = items_data.get(item.lower())
+                        if not data:
+                            continue
+                        buy_val = data["buy"] * qty
+                        sell_val = data["sell"] * qty
+                        total_buy += buy_val
+                        total_sell += sell_val
+                        details.append(
+                            f"• {item.title()} × {qty} → 🛒 Buy: `${buy_val:,.2f}` | 💵 Sell: `${sell_val:,.2f}`"
+                        )
 
-                    @discord.ui.button(label="➡️ Next", style=discord.ButtonStyle.primary)
-                    async def next(self, inter: discord.Interaction, _):
-                        await ask_for_quantity(inter, next_item=True)
-
-                    @discord.ui.button(label="✅ Finish", style=discord.ButtonStyle.success)
-                    async def finish(self, inter: discord.Interaction, _):
-                        await send_summary(inter)
-
-                await inter.response.send_message(embed=embed, ephemeral=True, view=QuantityView())
-
-            async def ask_for_quantity(inter: discord.Interaction, next_item=False):
-                current_item = selected_items[progress["index"]]
-                data = items_data.get(current_item.lower())
-                await inter.followup.send(
-                    f"✏️ Please enter the quantity for **{current_item.title()}**:",
-                    ephemeral=True
-                )
-
-                def check(m):
-                    return m.author.id == user_id and m.channel == inter.channel
-
-                try:
-                    msg = await bot.wait_for("message", check=check, timeout=120)
-                    qty = float(msg.content)
-                    await msg.delete()
-                except (asyncio.TimeoutError, ValueError):
-                    await inter.followup.send("⚠️ Invalid input or timeout. Please enter a number next time.", ephemeral=True)
-                    return
-
-                # Update totals
-                progress["quantities"][current_item] = qty
-                buy_val = data["buy"] * qty
-                sell_val = data["sell"] * qty
-                progress["subtotal_buy"] += buy_val
-                progress["subtotal_sell"] += sell_val
-
-                await inter.followup.send(
-                    f"✅ Recorded **{qty} × {current_item.title()}**\n"
-                    f"🧾 Running Total → Buy: `${progress['subtotal_buy']:,.2f}`, Sell: `${progress['subtotal_sell']:,.2f}`",
-                    ephemeral=True
-                )
-
-                if next_item:
-                    if progress["index"] < len(selected_items) - 1:
-                        progress["index"] += 1
-                        await show_item_prompt(inter)
+                    if batches:
+                        await modal_interaction.response.send_message(
+                            f"✅ Recorded {len(self.batch)} items.\nPress **Continue** to enter more quantities or **Finish** to calculate totals.",
+                            ephemeral=False,
+                            view=ContinueView()
+                        )
                     else:
-                        await send_summary(inter)
+                        await send_summary(modal_interaction)
 
             async def send_summary(inter):
-                summary = discord.Embed(
-                    title="📊 Total Summary",
-                    color=discord.Color.green(),
-                    description="\n".join(
-                        f"• {item.title()} × {qty} → 💰 `${items_data[item]['buy'] * qty:,.2f}` | 💵 `${items_data[item]['sell'] * qty:,.2f}`"
-                        for item, qty in progress["quantities"].items() if qty > 0
-                    )[:4000]
-                )
-                summary.add_field(name="💰 Total Buy", value=f"${progress['subtotal_buy']:,.2f}", inline=True)
-                summary.add_field(name="💵 Total Sell", value=f"${progress['subtotal_sell']:,.2f}", inline=True)
-                await inter.response.send_message(embed=summary, ephemeral=True)
+                summary = discord.Embed(title="📦 Total Calculation", color=discord.Color.blurple())
+                detail_text = "\n".join(details)
+                summary.add_field(name="Details", value=(detail_text[:1020] + "…") if len(detail_text) > 1024 else detail_text, inline=False)
+                summary.add_field(name="💰 Total Buy", value=f"${total_buy:,.2f}")
+                summary.add_field(name="💵 Total Sell", value=f"${total_sell:,.2f}")
+                await inter.response.send_message(embed=summary)
 
                 user_selected_items.pop(user_id, None)
                 self.selected_items.clear()
+                await inter.followup.send("🧹 All selected items have been cleared.", ephemeral=False)
 
-            # Start the interactive flow
-            await show_item_prompt(interaction)
+            class ContinueView(discord.ui.View):
+                @discord.ui.button(label="Continue", style=discord.ButtonStyle.secondary)
+                async def continue_button(self, inter: discord.Interaction, _):
+                    if batches:
+                        next_batch = batches.pop(0)
+                        await inter.response.send_modal(QuantityModal(next_batch))
+                    else:
+                        await inter.response.send_message("✅ All items recorded.", ephemeral=False)
+
+                @discord.ui.button(label="Finish", style=discord.ButtonStyle.success)
+                async def finish_button(self, inter: discord.Interaction, _):
+                    await send_summary(inter)
+
+            first_batch = batches.pop(0)
+            await interaction.response.send_modal(QuantityModal(first_batch))
 
     view = TotalView()
     await interaction.followup.send(embed=view.current_embed, view=view)
@@ -455,6 +423,7 @@ async def search(interaction: discord.Interaction, query: str):
                     f"🛒 Added **{self.selected_item.title()}** to your total list!\n➡️ Opening total view...",
                     ephemeral=True
                 )
+                # ✅ FIX: use helper instead of total.callback()
                 await show_total_view(inter)
             else:
                 await inter.response.send_message(
@@ -472,10 +441,13 @@ async def search(interaction: discord.Interaction, query: str):
 async def sync(ctx):
     await ctx.send("🔄 Syncing slash commands...")
     synced = await bot.tree.sync()
-    await ctx.send(f"✅ Synced {len(synced)} commands!")
+    await ctx.send(f"✅ Synced {len(synced)} global slash commands.")
 
 # -------------------------------
-# 🏁 START BOT
+# 🚀 RUN BOT WITH KEEP ALIVE
 # -------------------------------
-keep_alive()
-bot.run(TOKEN)
+if not TOKEN:
+    print("❌ ERROR: Discord token not found in .env")
+else:
+    keep_alive()
+    bot.run(TOKEN)
