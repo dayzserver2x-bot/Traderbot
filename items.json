@@ -524,8 +524,8 @@
         "sell": 200.0
     },
     "weedcrate": {
-        "buy": 5000.0,
-        "sell": 0.0
+        "buy":  0.0,
+        "sell": 5000.0
     },
     "vitamins/tetra": {
         "buy": 250.0,
