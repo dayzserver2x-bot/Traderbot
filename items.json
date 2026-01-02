@@ -590,5 +590,38 @@
     "guncleaningkit": {
         "buy": 1000.0,
         "sell": 500.0
+    },
+    "M79": {
+        "buy": 35000.0,
+        "sell": 8000.0
+    },
+    "Hatchet": {
+        "buy": 600.0,
+        "sell": 100.0
+    },
+    "bottle suppressor": {
+        "buy": 200.0,
+        "sell": 50.0
+    },
+    "Gas mask filters": {
+        "buy": 2000.0,
+        "sell": 800.0
+    },
+    "Poxy putty": {
+        "buy": 400.0,
+        "sell": 100.0
+
+    },
+    "Hats": {
+        "buy": 500.0,
+        "sell": 100.0
+    },
+    "Garden Lime": {
+        "buy": 1300.0,
+        "sell": 150.0
+    },
+    "Nvg Scopes": {
+        "buy": 2500.0,
+        "sell": 750.0
     }
 }
