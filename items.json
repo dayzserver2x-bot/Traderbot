@@ -623,5 +623,9 @@
     "Nvg Scopes": {
         "buy": 2500.0,
         "sell": 750.0
+    },
+     "Marksman scope": {
+        "buy": 2500.0,
+        "sell": 750.0
     }
 }
