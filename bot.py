@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from flask import Flask
 from threading import Thread
 import logging
-import asyncio
 
 # Enable logging to see full errors
 logging.basicConfig(level=logging.INFO)
@@ -147,11 +146,14 @@ async def price(interaction: discord.Interaction, item_name: str):
         await interaction.response.send_message(f"❌ {item_name.title()} not found.", ephemeral=False)
 
 # -------------------------------
-# 🔎 SEARCH COMMAND + FIXED TOTAL VIEW CALL
+# 🧾 USER SELECTIONS
 # -------------------------------
-user_selected_items = {}  # user_id: set of item names
+# user_id: {item_name: quantity}
+user_selected_items = {}
 
-# ✅ Helper for showing total view safely
+# -------------------------------
+# 🔎 TOTAL VIEW HELPERS
+# -------------------------------
 async def show_total_view(interaction: discord.Interaction):
     items = load_items()
     if not items:
@@ -159,14 +161,14 @@ async def show_total_view(interaction: discord.Interaction):
         return
 
     user_id = interaction.user.id
-    preselected_items = list(user_selected_items.get(user_id, set()))
+    saved_quantities = dict(user_selected_items.get(user_id, {}))
     all_items_list = list(sorted(items.items()))
     total_pages = (len(all_items_list) - 1) // 25 + 1
 
     class TotalView(discord.ui.View):
         def __init__(self):
             super().__init__(timeout=None)
-            self.selected_items = list(dict.fromkeys(preselected_items))
+            self.item_quantities = dict(saved_quantities)
             self.page = 0
             self.update_dropdown_and_embed()
 
@@ -176,16 +178,18 @@ async def show_total_view(interaction: discord.Interaction):
             current_page_items = all_items_list[start:end]
             embed = discord.Embed(
                 title=f"🛍️ Available Shop Items (Page {self.page + 1}/{total_pages})",
-                description="Select items below to include in your total.",
+                description="Select one item below and its quantity box will pop up immediately.",
                 color=discord.Color.gold()
             )
             for name, data in current_page_items:
+                qty = self.item_quantities.get(name.lower())
+                qty_text = f" | 📦 Qty: {qty:g}" if qty is not None else ""
                 embed.add_field(
                     name=name.title(),
-                    value=f"💰 Buy: ${data['buy']:,.2f} | 💵 Sell: ${data['sell']:,.2f}",
+                    value=f"💰 Buy: ${data['buy']:,.2f} | 💵 Sell: ${data['sell']:,.2f}{qty_text}",
                     inline=True
                 )
-            embed.set_footer(text=f"Preselected items: {len(self.selected_items)}")
+            embed.set_footer(text=f"Selected items: {len(self.item_quantities)}")
             return embed
 
         def update_dropdown_and_embed(self):
@@ -199,28 +203,67 @@ async def show_total_view(interaction: discord.Interaction):
                 )
                 for name, data in current_page_items
             ]
+
             for child in list(self.children):
                 if isinstance(child, discord.ui.Select):
                     self.remove_item(child)
+
             self.select_menu = discord.ui.Select(
-                placeholder="Select up to 25 items...",
+                placeholder="Select an item to enter quantity...",
                 min_values=1,
-                max_values=min(25, len(options)),
+                max_values=1,
                 options=options
             )
             self.select_menu.callback = self.handle_select
             self.add_item(self.select_menu)
             self.current_embed = self.create_page_embed()
 
+        async def refresh_message(self, source_message: discord.Message | None):
+            self.update_dropdown_and_embed()
+            if source_message is not None:
+                await source_message.edit(embed=self.current_embed, view=self)
+
         async def handle_select(self, interaction: discord.Interaction):
-            newly_selected = [i.lower() for i in self.select_menu.values]
-            self.selected_items.extend(newly_selected)
-            self.selected_items = list(dict.fromkeys(self.selected_items))
-            user_selected_items.setdefault(user_id, set()).update(self.selected_items)
-            await interaction.response.send_message(
-                f"✅ Added: {', '.join([i.title() for i in newly_selected])}\n🧾 Total selected: {len(self.selected_items)} items",
-                ephemeral=True
-            )
+            selected_item = self.select_menu.values[0].lower()
+            current_qty = self.item_quantities.get(selected_item)
+            source_message = interaction.message
+
+            class QuantityModal(discord.ui.Modal, title="Enter Quantity"):
+                quantity = discord.ui.TextInput(
+                    label=f"{selected_item.title()} Quantity",
+                    placeholder="Enter a number (e.g., 3)",
+                    required=True,
+                    default="" if current_qty is None else str(current_qty)
+                )
+
+                async def on_submit(modal_self, modal_interaction: discord.Interaction):
+                    try:
+                        qty = float(modal_self.quantity.value)
+                    except ValueError:
+                        await modal_interaction.response.send_message("⚠️ Please enter a valid number.", ephemeral=True)
+                        return
+
+                    if qty < 0:
+                        await modal_interaction.response.send_message("⚠️ Quantity cannot be negative.", ephemeral=True)
+                        return
+
+                    user_selected_items.setdefault(user_id, {})
+                    if qty == 0:
+                        user_selected_items[user_id].pop(selected_item, None)
+                        self.item_quantities.pop(selected_item, None)
+                        action_text = f"🗑️ Removed **{selected_item.title()}** from your total list."
+                    else:
+                        user_selected_items[user_id][selected_item] = qty
+                        self.item_quantities[selected_item] = qty
+                        action_text = f"✅ Saved **{selected_item.title()} × {qty:g}**"
+
+                    await modal_interaction.response.send_message(
+                        f"{action_text}\n🧾 Total selected items: {len(self.item_quantities)}",
+                        ephemeral=True
+                    )
+                    await self.refresh_message(source_message)
+
+            await interaction.response.send_modal(QuantityModal())
 
         @discord.ui.button(label="⬅️ Prev Page", style=discord.ButtonStyle.secondary)
         async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -242,116 +285,77 @@ async def show_total_view(interaction: discord.Interaction):
 
         @discord.ui.button(label="📋 View Selected Items", style=discord.ButtonStyle.primary)
         async def view_selected(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if not self.selected_items:
+            if not self.item_quantities:
                 await interaction.response.send_message("⚠️ You haven't selected any items yet!", ephemeral=False)
                 return
 
             embed = discord.Embed(
                 title="📋 Selected Items",
-                description=f"Currently selected ({len(self.selected_items)} items):",
+                description=f"Currently selected ({len(self.item_quantities)} items):",
                 color=discord.Color.blue()
             )
 
-            for item in self.selected_items[:25]:
+            shown_items = list(self.item_quantities.items())[:25]
+            for item, qty in shown_items:
                 data = items.get(item.lower())
                 if data:
+                    buy_total = data['buy'] * qty
+                    sell_total = data['sell'] * qty
                     embed.add_field(
-                        name=item.title(),
-                        value=f"💰 Buy: ${data['buy']:,.2f} | 💵 Sell: ${data['sell']:,.2f}",
+                        name=f"{item.title()} × {qty:g}",
+                        value=f"🛒 Buy: ${buy_total:,.2f} | 💵 Sell: ${sell_total:,.2f}",
                         inline=True
                     )
 
-            if len(self.selected_items) > 25:
+            if len(self.item_quantities) > 25:
                 embed.set_footer(text="⚠️ Showing first 25 items only.")
 
             await interaction.response.send_message(embed=embed, ephemeral=False)
 
         @discord.ui.button(label="✅ Calculate Total", style=discord.ButtonStyle.success)
         async def calculate_total(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if not self.selected_items:
+            if not self.item_quantities:
                 await interaction.response.send_message("⚠️ You haven't selected any items yet!", ephemeral=False)
                 return
-
-            items_data = load_items()
-            selected_items = list(dict.fromkeys(self.selected_items))
-            batches = [selected_items[i:i + 5] for i in range(0, len(selected_items), 5)]
 
             total_buy = 0.0
             total_sell = 0.0
             details = []
 
-            class QuantityModal(discord.ui.Modal, title="Enter Quantities"):
-                def __init__(self, batch):
-                    super().__init__()
-                    self.batch = batch
-                    for item in batch:
-                        self.add_item(discord.ui.TextInput(
-                            label=f"{item.title()} Quantity",
-                            placeholder="Enter a number (e.g., 3)",
-                            required=True
-                        ))
+            for item, qty in self.item_quantities.items():
+                data = items.get(item.lower())
+                if not data:
+                    continue
+                buy_val = data['buy'] * qty
+                sell_val = data['sell'] * qty
+                total_buy += buy_val
+                total_sell += sell_val
+                details.append(
+                    f"• {item.title()} × {qty:g} → 🛒 Buy: `${buy_val:,.2f}` | 💵 Sell: `${sell_val:,.2f}`"
+                )
 
-                async def on_submit(self, modal_interaction: discord.Interaction):
-                    nonlocal total_buy, total_sell, details
+            summary = discord.Embed(title="📦 Total Calculation", color=discord.Color.blurple())
+            detail_text = "\n".join(details) or "No valid items selected."
+            summary.add_field(
+                name="Details",
+                value=(detail_text[:1020] + "…") if len(detail_text) > 1024 else detail_text,
+                inline=False
+            )
+            summary.add_field(name="💰 Total Buy", value=f"${total_buy:,.2f}")
+            summary.add_field(name="💵 Total Sell", value=f"${total_sell:,.2f}")
 
-                    for i, item in enumerate(self.batch):
-                        try:
-                            qty = float(self.children[i].value)
-                        except ValueError:
-                            qty = 0
-                        data = items_data.get(item.lower())
-                        if not data:
-                            continue
-                        buy_val = data["buy"] * qty
-                        sell_val = data["sell"] * qty
-                        total_buy += buy_val
-                        total_sell += sell_val
-                        details.append(
-                            f"• {item.title()} × {qty} → 🛒 Buy: `${buy_val:,.2f}` | 💵 Sell: `${sell_val:,.2f}`"
-                        )
-
-                    if batches:
-                        await modal_interaction.response.send_message(
-                            f"✅ Recorded {len(self.batch)} items.\nPress **Continue** to enter more quantities or **Finish** to calculate totals.",
-                            ephemeral=False,
-                            view=ContinueView()
-                        )
-                    else:
-                        await send_summary(modal_interaction)
-
-            async def send_summary(inter):
-                summary = discord.Embed(title="📦 Total Calculation", color=discord.Color.blurple())
-                detail_text = "\n".join(details)
-                summary.add_field(name="Details", value=(detail_text[:1020] + "…") if len(detail_text) > 1024 else detail_text, inline=False)
-                summary.add_field(name="💰 Total Buy", value=f"${total_buy:,.2f}")
-                summary.add_field(name="💵 Total Sell", value=f"${total_sell:,.2f}")
-                await inter.response.send_message(embed=summary)
-
-                user_selected_items.pop(user_id, None)
-                self.selected_items.clear()
-                await inter.followup.send("🧹 All selected items have been cleared.", ephemeral=False)
-
-            class ContinueView(discord.ui.View):
-                @discord.ui.button(label="Continue", style=discord.ButtonStyle.secondary)
-                async def continue_button(self, inter: discord.Interaction, _):
-                    if batches:
-                        next_batch = batches.pop(0)
-                        await inter.response.send_modal(QuantityModal(next_batch))
-                    else:
-                        await inter.response.send_message("✅ All items recorded.", ephemeral=False)
-
-                @discord.ui.button(label="Finish", style=discord.ButtonStyle.success)
-                async def finish_button(self, inter: discord.Interaction, _):
-                    await send_summary(inter)
-
-            first_batch = batches.pop(0)
-            await interaction.response.send_modal(QuantityModal(first_batch))
+            await interaction.response.send_message(embed=summary)
+            user_selected_items.pop(user_id, None)
+            self.item_quantities.clear()
+            self.update_dropdown_and_embed()
+            await interaction.followup.send("🧹 All selected items have been cleared.", ephemeral=False)
+            await interaction.message.edit(embed=self.current_embed, view=self)
 
     view = TotalView()
     await interaction.followup.send(embed=view.current_embed, view=view)
 
 # -------------------------------
-# 💰 TOTAL COMMAND (FIXED)
+# 💰 TOTAL COMMAND
 # -------------------------------
 @bot.tree.command(name="total", description="Calculate total buy/sell value of multiple items")
 async def total(interaction: discord.Interaction):
@@ -392,9 +396,8 @@ async def search(interaction: discord.Interaction, query: str):
                 discord.SelectOption(label=name.title(), description=f"Buy ${data['buy']:,.2f} | Sell ${data['sell']:,.2f}")
                 for name, data in list(results.items())[:25]
             ]
-            self.selected_item = None
             self.select = discord.ui.Select(
-                placeholder="Select an item to add to total...",
+                placeholder="Select an item to enter quantity...",
                 options=self.options,
                 min_values=1,
                 max_values=1
@@ -403,33 +406,42 @@ async def search(interaction: discord.Interaction, query: str):
             self.add_item(self.select)
 
         async def select_callback(self, inter: discord.Interaction):
-            self.selected_item = self.select.values[0].lower()
-            await inter.response.send_message(
-                f"✅ Selected **{self.selected_item.title()}**. Click 'Add to Total' to save it.",
-                ephemeral=True
-            )
+            selected_item = self.select.values[0].lower()
+            current_qty = user_selected_items.get(inter.user.id, {}).get(selected_item)
 
-        @discord.ui.button(label="➕ Add to Total", style=discord.ButtonStyle.success)
-        async def add_to_total(self, inter: discord.Interaction, button: discord.ui.Button):
-            if not self.selected_item:
-                await inter.response.send_message("⚠️ Please select an item first.", ephemeral=False)
-                return
+            class QuantityModal(discord.ui.Modal, title="Enter Quantity"):
+                quantity = discord.ui.TextInput(
+                    label=f"{selected_item.title()} Quantity",
+                    placeholder="Enter a number (e.g., 3)",
+                    required=True,
+                    default="" if current_qty is None else str(current_qty)
+                )
 
-            user_id = inter.user.id
-            user_selected_items.setdefault(user_id, set())
-            if self.selected_item not in user_selected_items[user_id]:
-                user_selected_items[user_id].add(self.selected_item)
-                await inter.response.send_message(
-                    f"🛒 Added **{self.selected_item.title()}** to your total list!\n➡️ Opening total view...",
-                    ephemeral=True
-                )
-                # ✅ FIX: use helper instead of total.callback()
-                await show_total_view(inter)
-            else:
-                await inter.response.send_message(
-                    f"⚠️ **{self.selected_item.title()}** is already in your total list.",
-                    ephemeral=True
-                )
+                async def on_submit(modal_self, modal_interaction: discord.Interaction):
+                    try:
+                        qty = float(modal_self.quantity.value)
+                    except ValueError:
+                        await modal_interaction.response.send_message("⚠️ Please enter a valid number.", ephemeral=True)
+                        return
+
+                    if qty < 0:
+                        await modal_interaction.response.send_message("⚠️ Quantity cannot be negative.", ephemeral=True)
+                        return
+
+                    user_selected_items.setdefault(modal_interaction.user.id, {})
+                    if qty == 0:
+                        user_selected_items[modal_interaction.user.id].pop(selected_item, None)
+                        msg = f"🗑️ Removed **{selected_item.title()}** from your total list."
+                    else:
+                        user_selected_items[modal_interaction.user.id][selected_item] = qty
+                        msg = f"✅ Saved **{selected_item.title()} × {qty:g}** to your total list."
+
+                    await modal_interaction.response.send_message(
+                        f"{msg}\n➡️ Use `/total` any time to review and calculate everything.",
+                        ephemeral=True
+                    )
+
+            await inter.response.send_modal(QuantityModal())
 
     await interaction.response.send_message(embed=embed, view=SearchView())
 
