@@ -567,7 +567,7 @@ class SearchItemModal(discord.ui.Modal, title="Search Shop Items"):
             matches,
             f"🔎 Search: {str(self.query.value).strip()}",
         )
-        await interaction.response.send_message(embed=browser.current_embed, view=browser, ephemeral=True)
+        await interaction.response.send_message(embed=browser.current_embed, view=browser, ephemeral=False)
 
 
 # -------------------------------
@@ -760,7 +760,7 @@ class TotalView(discord.ui.View):
             description="Choose a category to narrow down the shop items.",
             color=discord.Color.blue(),
         )
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=False)
 
     @discord.ui.button(label="📖 Browse All", style=discord.ButtonStyle.secondary, row=1, custom_id="calc:browse")
     async def browse_all(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -769,7 +769,7 @@ class TotalView(discord.ui.View):
             await interaction.response.send_message("⚠️ The shop is empty.", ephemeral=True)
             return
         browser = ItemBrowserView(self, sorted(items), "📖 Browse All Items")
-        await interaction.response.send_message(embed=browser.current_embed, view=browser, ephemeral=True)
+        await interaction.response.send_message(embed=browser.current_embed, view=browser, ephemeral=False)
 
     @discord.ui.button(label="🛒 View / Edit Cart", style=discord.ButtonStyle.primary, row=2, custom_id="calc:cart")
     async def view_cart(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -780,7 +780,7 @@ class TotalView(discord.ui.View):
             )
             return
         cart_view = CartView(self)
-        await interaction.response.send_message(embed=cart_view.current_embed, view=cart_view, ephemeral=True)
+        await interaction.response.send_message(embed=cart_view.current_embed, view=cart_view, ephemeral=False)
 
     @discord.ui.button(label="✅ Calculate", style=discord.ButtonStyle.success, row=2, custom_id="calc:calculate")
     async def calculate_total(self, interaction: discord.Interaction, button: discord.ui.Button):
